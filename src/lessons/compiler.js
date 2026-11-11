@@ -1,0 +1,93 @@
+export default {
+  id: "compiler",
+  title: "Compiler",
+  blurb: "Translate everything once into a program file",
+  intro: "A compiler translates your whole program ahead of time into machine code and saves it in a file. Real gcc output for a tiny C function.",
+  facts: [
+    ["Input", "Source code (text)"],
+    ["Makes", "A program file (machine code)"],
+    ["Runs by", "The CPU directly, no helper needed"],
+    ["Starts", "After a build step"],
+    ["Real example", "gcc, rustc, go build"],
+  ],
+  stage: [["code", "files"], ["pipe"], ["a0", "a1"]],
+  widgets: {
+    code: { type: "code", short: "Source", title: "add.c", lines: ["int add(int a, int b) {", "  return a + b;", "}", "", "int main(void) {", "  return add(2, 3);", "}"] },
+    files: { type: "list", short: "Files", title: "Files on disk", layout: "rows" },
+    pipe: { type: "pipeline", short: "Compiler", title: "gcc, step by step", stages: [
+      { name: "Front end", sub: "tokens, tree, checks" }, { name: "Machine code", sub: "no optimising", artifact: "asm0" },
+      { name: "Optimiser", sub: "same answer, less work", artifact: "asm1" }, { name: "Object file", sub: "add.o", artifact: "obj" }, { name: "Linker", sub: "joins the pieces" }, { name: "Executable", sub: "add", artifact: "elf" }] },
+    a0: { type: "bytes", short: "Plain", title: "Plain translation (-O0)" },
+    a1: { type: "bytes", short: "Optimised", title: "Optimised (-O1)" },
+  },
+  steps: [
+    { title: "You write source code", text: "Just like the interpreter lesson, you start with text. But this time a different tool reads it, and it finishes before your program ever runs.",
+      w: { pipe: { at: -1 }, files: { items: [{ t: "add.c", sub: "your text" }] }, a0: { rows: [] }, a1: { rows: [] } } },
+    { title: "Front end: read and check", text: "The compiler cuts the text into tokens, builds a syntax tree, and checks it. Mistakes such as using a name that does not exist are found here, before anything can run.",
+      w: { code: { hl: [0, 1, 2] }, pipe: { at: 0, label: "tokens → tree → type checks" } }, fly: { from: "code", to: "pipe", label: "checked" } },
+    { title: "Translate to machine code", text: "Now each piece of the tree becomes CPU instructions. This first draft is simple and long: 10 instructions for a plus b.",
+      w: { pipe: { at: 1, label: "10 instructions, 24 bytes" }, a0: { rows: [
+        { a: "0", b: "f3 0f 1e fa", t: "endbr64" }, { a: "4", b: "55", t: "push rbp" }, { a: "5", b: "48 89 e5", t: "mov rbp, rsp" },
+        { a: "8", b: "89 7d fc", t: "mov [rbp-4], edi" }, { a: "b", b: "89 75 f8", t: "mov [rbp-8], esi" }, { a: "e", b: "8b 55 fc", t: "mov edx, [rbp-4]" },
+        { a: "11", b: "8b 45 f8", t: "mov eax, [rbp-8]" }, { a: "14", b: "01 d0", t: "add eax, edx" }, { a: "16", b: "5d", t: "pop rbp" }, { a: "17", b: "c3", t: "ret" }] } },
+      fly: { from: "pipe", to: "a0", label: "machine code" }, inspect: ["asm0"] },
+    { title: "Optimise: same answer, less work", text: "Because the compiler has time before your program runs, it can think hard. It notices that the whole function is one addition and shrinks it to 3 instructions (the first is a security marker).",
+      w: { code: { hl: null }, pipe: { at: 2, label: "10 instructions → 3, 24 bytes → 8" }, a0: { tone: "dim" }, a1: { rows: [
+        { a: "0", b: "f3 0f 1e fa", t: "endbr64" }, { a: "4", b: "8d 04 37", t: "lea eax, [rdi+rsi]", tone: "ok" }, { a: "7", b: "c3", t: "ret" }] } },
+      fly: { from: "a0", to: "a1", label: "smaller" }, inspect: ["asm1"] },
+    { title: "Object file: one piece, with a blank", text: "The result is saved as add.o. Look at main's call: its target address is still 00 00 00 00. The compiler does not know yet where add will finally live.",
+      w: { pipe: { at: 3, label: "e8 00 00 00 00  ← address left blank" }, files: { items: [{ t: "add.c", sub: "your text" }, { t: "add.o", sub: "machine code with blanks", tone: "hot" }] } },
+      fly: { from: "a1", to: "files", label: "add.o" }, inspect: ["obj"] },
+    { title: "Linker: join the pieces", text: "The linker puts your code together with startup code and libraries, fills in every blank address, and writes one finished program file.",
+      w: { pipe: { at: 4, label: "fill blanks, add startup code" }, files: { items: [{ t: "add.c", sub: "your text" }, { t: "add.o", sub: "pieces" }, { t: "add", sub: "15,792 bytes", tone: "ok" }] } },
+      fly: { from: "pipe", to: "files", label: "add" } },
+    { title: "Done. The compiler is not needed any more", text: "The file called add is a complete program. You can copy it to another computer with the same kind of CPU and run it there without gcc. It starts instantly, because all the translating was already done.",
+      w: { pipe: { at: 5, label: "first bytes: 7f 45 4c 46 (\"ELF\")" }, code: { hl: null } }, inspect: ["elf"] },
+  ],
+  artifacts: {
+    asm0: {
+      title: "Plain translation (-O0)", desc: "What gcc makes with optimising turned off. It keeps everything in memory, step by step.",
+      real: "gcc -O0 -c add.c && objdump -d -M intel add.o",
+      fields: [
+        ["push rbp / mov rbp, rsp", "set up a frame", "Housekeeping so a debugger can follow the function.", [1, 2]],
+        ["mov [rbp-4], edi …", "save inputs in memory", "The inputs arrive in registers; -O0 copies them to the stack.", [3, 4]],
+        ["mov edx / mov eax", "read them back", "Loading them again, just to add them.", [5, 6]],
+        ["add eax, edx", "the real work", "The only instruction that does what you asked.", [7]],
+      ],
+      raw: { label: "Real objdump output", text: "0:  f3 0f 1e fa    endbr64\n4:  55             push   rbp\n5:  48 89 e5       mov    rbp,rsp\n8:  89 7d fc       mov    DWORD PTR [rbp-0x4],edi\nb:  89 75 f8       mov    DWORD PTR [rbp-0x8],esi\ne:  8b 55 fc       mov    edx,DWORD PTR [rbp-0x4]\n11: 8b 45 f8       mov    eax,DWORD PTR [rbp-0x8]\n14: 01 d0          add    eax,edx\n16: 5d             pop    rbp\n17: c3             ret" },
+    },
+    asm1: {
+      title: "Optimised (-O1)", desc: "The same function after the optimiser has finished.",
+      real: "gcc -O1 -fno-inline -c add.c && objdump -d -M intel add.o",
+      fields: [
+        ["endbr64", "marker", "A security marker for indirect jumps. Does nothing else.", [0]],
+        ["lea eax, [rdi+rsi*1]", "eax = rdi + rsi", "One instruction does the whole job, with no memory trips.", [1]],
+        ["ret", "return", "Give control back to the caller.", [2]],
+      ],
+      raw: { label: "Real objdump output", text: "0:  f3 0f 1e fa    endbr64\n4:  8d 04 37       lea    eax,[rdi+rsi*1]\n7:  c3             ret" },
+    },
+    obj: {
+      title: "Object file (add.o)", desc: "Machine code with some addresses still missing. The linker fills them in.",
+      real: "objdump -d -M intel add.o",
+      fields: [
+        ["be 03 00 00 00", "mov esi, 3", "Ready to run.", [1]],
+        ["bf 02 00 00 00", "mov edi, 2", "Ready to run.", [2]],
+        ["e8 00 00 00 00", "call add", "The four zero bytes are a blank. The linker will write the real distance to add here.", [3]],
+      ],
+      raw: { label: "main in add.o (real)", text: "8:  f3 0f 1e fa       endbr64\n  c:  be 03 00 00 00      mov    esi,0x3\n 11:  bf 02 00 00 00      mov    edi,0x2\n 16:  e8 00 00 00 00      call   1b <main+0x13>\n 1b:  c3                  ret" },
+    },
+    elf: {
+      title: "The executable (ELF file)", desc: "The first 32 bytes of the finished program on Linux. The first bytes tell the system what kind of file it is.",
+      real: "xxd -l 32 add",
+      fields: [
+        ["7f 45 4c 46", "magic number", "0x7f then the letters E L F. Every Linux program starts like this.", [0]],
+        ["02", "64-bit", "A 64-bit program.", [0]],
+        ["01", "little endian", "Smallest byte first.", [0]],
+        ["3e 00", "x86-64", "Only runs on this kind of CPU.", [1]],
+        ["40 10 00 00 …", "entry point 0x1040", "Where the CPU should start running.", [1]],
+      ],
+      raw: { label: "Real bytes", text: "00000000: 7f45 4c46 0201 0100 0000 0000 0000 0000  .ELF............\n00000010: 0300 3e00 0100 0000 4010 0000 0000 0000  ..>.....@......." },
+    },
+  },
+  outro: { title: "Compiler, in one sentence", text: "Translate once, optimise hard, save a program file. Starting is instant and running is fast, but you wait for the build first." },
+};

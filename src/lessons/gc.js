@@ -1,0 +1,41 @@
+export default {
+  id: "gc",
+  title: "Garbage collection",
+  blurb: "How JavaScript frees memory nobody can reach",
+  intro: "JavaScript never asks you to free memory. The engine finds objects that nothing points to any more and reclaims them. Watch it find the living ones from the roots.",
+  facts: [
+    ["Idea", "Keep what is reachable, free the rest"],
+    ["Roots", "Variables on the stack and global variables"],
+    ["Young generation", "New objects. Cleaned often and quickly"],
+    ["Old generation", "Survivors. Cleaned rarely and carefully"],
+    ["Cost", "Short pauses, mostly hidden by background threads"],
+  ],
+  stage: [["roots", "young"], ["old", "lanes"]],
+  widgets: {
+    roots: { type: "list", short: "Roots", title: "Roots (the stack)", layout: "rows" },
+    young: { type: "objects", short: "Young", title: "Young generation (new objects)" },
+    old: { type: "objects", short: "Old", title: "Old generation (survivors)" },
+    lanes: { type: "lanes", short: "Threads", title: "Who is working" },
+  },
+  steps: [
+    { title: "Allocating is quick", text: "New objects are placed one after another in the young generation, like adding cards to a pile. Nothing is cleaned yet.",
+      w: { roots: { items: [{ t: "keep", sub: "→ A" }] }, young: { objs: [
+        { id: "A", title: "User", tone: "new", fields: [["next", "→ D"]] }, { id: "B", title: "temp", tone: "new", fields: [] }, { id: "C", title: "temp", tone: "new", fields: [] }, { id: "D", title: "Settings", tone: "new", fields: [] }] },
+        old: { objs: [] }, lanes: { lanes: [{ name: "Main thread", blocks: [{ t: "run program" }] }, { name: "GC helpers", blocks: [] }] } } },
+    { title: "The young space fills up", text: "Time to clean. The engine briefly pauses the program so that nothing changes while it looks. The question: which objects can the program still reach?",
+      w: { lanes: { lanes: [{ name: "Main thread", blocks: [{ t: "run program", tone: "dim" }, { t: "paused", tone: "bad" }] }, { name: "GC helpers", blocks: [{ t: "start scavenge" }] }] } } },
+    { title: "Mark: follow the pointers from the roots", text: "Start at the roots. keep points to A, so A is alive. A points to D, so D is alive too. Nothing points to B or C. This is the whole trick: reachable means alive.",
+      w: { roots: { items: [{ t: "keep", sub: "→ A", tone: "ok" }] }, young: { objs: [
+        { id: "A", title: "User", tone: "ok", fields: [["next", "→ D"]] }, { id: "B", title: "temp", tone: "bad", fields: [] }, { id: "C", title: "temp", tone: "bad", fields: [] }, { id: "D", title: "Settings", tone: "ok", fields: [] }] } },
+      fly: { from: "roots", to: "young", label: "reachable" } },
+    { title: "Copy the survivors, drop the rest", text: "The living objects are copied to a fresh area. Then the whole old area is thrown away at once, B and C included, without even looking at them. Cost depends on how much survives, not on how much was garbage.",
+      w: { young: { objs: [{ id: "A", title: "User", tone: "ok", fields: [["next", "→ D"]] }, { id: "D", title: "Settings", tone: "ok", fields: [] }] }, lanes: { lanes: [{ name: "Main thread", blocks: [{ t: "run program", tone: "ok" }] }, { name: "GC helpers", blocks: [{ t: "freed B and C", tone: "ok" }] }] } } },
+    { title: "Survive twice: move to old space", text: "Objects that live through two cleanups are probably long-lived (like your app's settings). They are promoted to the old generation, which is cleaned much less often.",
+      w: { young: { objs: [] }, old: { objs: [{ id: "A", title: "User", tone: "viol", fields: [["next", "→ D"]] }, { id: "D", title: "Settings", tone: "viol", fields: [] }] } },
+      fly: { from: "young", to: "old", label: "promote" } },
+    { title: "Old space: mostly in the background", text: "A full cleanup of old space does the same mark-and-free, but it is big. So V8 marks on helper threads while your program keeps running, and only pauses briefly at the start and end.",
+      w: { lanes: { lanes: [{ name: "Main thread", blocks: [{ t: "run program", tone: "ok" }, { t: "run program", tone: "ok" }, { t: "run program", tone: "ok" }] }, { name: "GC helpers", blocks: [{ t: "marking old space", tone: "hot" }, { t: "sweeping", tone: "hot" }] }] } } },
+  ],
+  artifacts: {},
+  outro: { title: "You never free, the engine does", text: "Reachable from a root means alive. Everything else is reclaimed. Keep references to big objects you no longer need and the collector cannot help you." },
+};
